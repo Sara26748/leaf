@@ -46,6 +46,7 @@ def train_model(X, Y, model, verbose=True):
     
     # verify the classifier on the test set
     pred_test = model.predict(test)
+    
     # print(pred_test, type(pred_test), pred_test.dtype)
     # pred_test = pred_test > 0.5 if str(pred_test.dtype).startswith('float') else pred_test
     if use_weights:
@@ -87,7 +88,7 @@ def get_LIME_classifier(lime_expl, label_x0, x0):
         # print('g.coef_', g.coef_)
         # print('g.intercept_', g.intercept_)
     else:
-        g = sklearn.linear_model.Ridge(alpha=1.0, fit_intercept=True, normalize=False)
+        g = sklearn.linear_model.Ridge(alpha=1.0, fit_intercept=True)
         g.coef_ = coef
         g.intercept_ = intercept
     return g
@@ -95,7 +96,7 @@ def get_LIME_classifier(lime_expl, label_x0, x0):
 # Build the linear classifier of a SHAP explainer
 def get_SHAP_classifier(label_x0, phi, phi0, x0, EX):
     coef = np.divide(phi[label_x0], (x0 - EX), where=(x0 - EX)!=0)
-    g = sklearn.linear_model.Ridge(alpha=1.0, fit_intercept=True, normalize=False)
+    g = sklearn.linear_model.Ridge(alpha=1.0, fit_intercept=True)
     g.coef_ = coef
     g.intercept_ = phi0[label_x0]
     return g
@@ -203,7 +204,7 @@ class LEAF:
         self.explanation_samples = explanation_samples
 
         # SHAP Kernel
-        self.SHAPEXPL = shap.KernelExplainer(self.bb_classifier.predict_proba, self.EX, 
+        self.SHAPEXPL = shap.KernelExplainer(self.bb_classifier.predict_proba, X, 
         									 nsamples=explanation_samples)
 
         # LIME Kernel
@@ -222,7 +223,7 @@ class LEAF:
         self.shap_avg_jaccard_bin = self.shap_std_jaccard_bin = None
 
 
-    def explain_instance(self, instance, num_reps=50, num_features=4, 
+    def explain_instance(self, instance, num_reps=5, num_features=4, 
                          neighborhood_samples=10000, use_cov_matrix=False, 
                          verbose=False, figure_dir=None):
         npEX = np.array(self.EX)
@@ -238,6 +239,7 @@ class LEAF:
 
         # Get the output of the black-box classifier on x0
         output = cls_proba([x0])[0]
+
         label_x0 = np.argmax(output)
         prob_x0 = output[label_x0]
         prob_x0_F, prob_x0_T = output[0], output[1]
@@ -264,7 +266,8 @@ class LEAF:
                                                        num_features=num_features, 
                                                        top_labels=1, 
                                                        num_samples=self.explanation_samples)
-
+            
+            
             # Explain x0 using SHAP
             shap_phi = self.SHAPEXPL.shap_values(x0, l1_reg="num_features(10)")
             shap_phi0 = self.SHAPEXPL.expected_value
@@ -316,7 +319,8 @@ class LEAF:
                     del R_keys[key]
 
             rows = pd.DataFrame(columns=R_keys) if rows is None else rows
-            rows = rows.append({k:R.__dict__[k] for k in R_keys}, ignore_index=True)
+            rows = pd.concat([rows, pd.DataFrame([{k:R.__dict__[k] for k in R_keys}])], ignore_index=True)
+            #rows = rows.append({k:R.__dict__[k] for k in R_keys}, ignore_index=True)
             progbar.value += 1
 
         label.value += " Done."
@@ -338,7 +342,7 @@ class LEAF:
         # store the metrics for later use
         self.metrics = rows
 
-        def leaf_plot(stability, method):
+        '''def leaf_plot(stability, method):
             fig, ax1 = plt.subplots(figsize=(6, 2.2))
             data = [ stability.flatten(),
                      1 - rows[method + '_local_discr'], 
@@ -375,16 +379,16 @@ class LEAF:
                 print('Saving', imgname)
                 plt.savefig(imgname, dpi=150, bbox_inches='tight')
             plt.show()
-
+'''
         # Show LIME explanation
         display(HTML("<h2>LIME</h2>"))
         lime_expl.show_in_notebook(show_table=True, show_all=False)
-        leaf_plot(lime_jaccard_mat, 'lime')
+        #leaf_plot(lime_jaccard_mat, 'lime')
 
         # Show SHAP explanation
         display(HTML("<h2>SHAP</h2>"))
         display(shap.force_plot(shap_phi0[label_x0], shap_phi[label_x0], x0))
-        leaf_plot(shap_jaccard_mat, 'shap')
+        #leaf_plot(shap_jaccard_mat, 'shap')
 
         prescription = False
         if prescription:
@@ -416,15 +420,15 @@ class LEAF:
             # display(df.T.iloc[math.ceil(F/2):,:])
 
             # Show LIME explanation
-            lime_expl = LIMEEXPL.explain_instance(np.array(shap_x1), cls_proba, 
+            lime_expl = self.LIMEEXPL.explain_instance(np.array(shap_x1), cls_proba, 
                                                   num_features=num_features, 
                                                   top_labels=1, num_samples=self.explanation_samples)
             lime_expl.show_in_notebook(show_table=True, show_all=False)
             # leaf_plot(lime_jaccard_mat, 'lime')
 
             # Show SHAP explanation
-            shap_phi = SHAPEXPL.shap_values(shap_x1, l1_reg="num_features(10)")
-            shap_phi0 = SHAPEXPL.expected_value
+            shap_phi = self.SHAPEXPL.shap_values(shap_x1, l1_reg="num_features(10)")
+            shap_phi0 = self.SHAPEXPL.expected_value
             argtop = np.argsort(np.abs(shap_phi[0]))
             for k in range(len(shap_phi)):
                 shap_phi[k][ argtop[:(F-num_features)] ] = 0
